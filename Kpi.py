@@ -138,31 +138,39 @@ with tab1:
                 st.error(f"حدث خطأ أثناء إدخال البيانات: {e}")
 
 # دالة فلترة البيانات حسب الفترة الزمنية
-def filter_by_date_range(df):
+def filter_by_date_range(df, key_prefix=""):
     if df.empty or "التاريخ_dt" not in df.columns:
         return df
     
     st.sidebar.header("🗓️ تحديد الفترة الزمنية للتقارير")
-    filter_type = st.sidebar.radio("طريقة الفلترة:", ["شهري", "فترة مخصصة (من - إلى)", "الكل"])
+    filter_type = st.sidebar.radio(
+        "طريقة الفلترة:",
+        ["شهري", "فترة مخصصة (من - إلى)", "الكل"],
+        key=f"{key_prefix}_filter_type"
+    )
     
     if filter_type == "شهري":
         df['سنة_شهر'] = df['التاريخ_dt'].dt.to_period('M')
         available_months = sorted(df['سنة_شهر'].dropna().unique().astype(str), reverse=True)
         if available_months:
-            selected_month = st.sidebar.selectbox("اختر الشهر/السنة:", available_months)
+            selected_month = st.sidebar.selectbox(
+                "اختر الشهر/السنة:",
+                available_months,
+                key=f"{key_prefix}_selected_month"
+            )
             return df[df['سنة_شهر'].astype(str) == selected_month]
     elif filter_type == "فترة مخصصة (من - إلى)":
         min_date = df['التاريخ_dt'].min().date() if not df['التاريخ_dt'].dropna().empty else datetime.now().date()
         max_date = df['التاريخ_dt'].max().date() if not df['التاريخ_dt'].dropna().empty else datetime.now().date()
-        start_date = st.sidebar.date_input("من تاريخ:", min_date)
-        end_date = st.sidebar.date_input("إلى تاريخ:", max_date)
+        start_date = st.sidebar.date_input("من تاريخ:", min_date, key=f"{key_prefix}_start_date")
+        end_date = st.sidebar.date_input("إلى تاريخ:", max_date, key=f"{key_prefix}_end_date")
         return df[(df['التاريخ_dt'].dt.date >= start_date) & (df['التاريخ_dt'].dt.date <= end_date)]
     
     return df
 
 with tab2:
     df_raw = load_data()
-    df_filtered = filter_by_date_range(df_raw)
+    df_filtered = filter_by_date_range(df_raw, key_prefix="tab2")
     
     st.subheader("📊 البيانات المفلترة حسب الفترة المحددة")
     st.dataframe(df_filtered.drop(columns=["التاريخ_dt", "سنة_شهر"], errors="ignore"), use_container_width=True)
@@ -182,7 +190,7 @@ with tab2:
 with tab3:
     st.header("📈 مؤشرات الأداء الهندسية والاعتمادية عن الفترة المحددة")
     df_kpi_raw = load_data()
-    df_kpi = filter_by_date_range(df_kpi_raw)
+    df_kpi = filter_by_date_range(df_kpi_raw, key_prefix="tab3")
     
     if not df_kpi.empty:
         breakdown_df = df_kpi[df_kpi["السبب الرئيسي"] == "عطل صيانة"]
