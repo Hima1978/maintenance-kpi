@@ -83,7 +83,7 @@ with tab1:
         with col6:
             notes = st.text_area("ملاحظات / أرقام طلبات الشراء والتفاصيل", "")
 
-        submit = st.form_submit_button("حفظ الإخطار في Excel 💾", use_container_width=True)
+        submit = st.form_submit_button("حفظ الإخطار في Excel 💾", width='stretch')
 
         if submit:
             try:
@@ -173,7 +173,7 @@ with tab2:
     df_filtered = filter_by_date_range(df_raw, key_prefix="tab2")
     
     st.subheader("📊 البيانات المفلترة حسب الفترة المحددة")
-    st.dataframe(df_filtered.drop(columns=["التاريخ_dt", "سنة_شهر"], errors="ignore"), use_container_width=True)
+    st.dataframe(df_filtered.drop(columns=["التاريخ_dt", "سنة_شهر"], errors="ignore"), width='stretch')
     
     if not df_filtered.empty:
         col_chart1, col_chart2, col_chart3 = st.columns(3)
