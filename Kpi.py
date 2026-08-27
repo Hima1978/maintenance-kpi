@@ -35,7 +35,6 @@ tab1, tab2, tab3 = st.tabs(["📝 إدخال إخطار عطل", "📊 قاعد�
 with tab1:
     st.header("🚨 إخطار عطل جديد")
     
-    # اختيار الأوقات أولاً لعرض المحسب الفوري لمدة العطل
     st.subheader("⏱️ تفاصيل أوقات العطل (حساب فوري)")
     col_t1, col_t2, col_t3 = st.columns(3)
     with col_t1:
@@ -91,7 +90,8 @@ with tab1:
         st.subheader("📋 الساعات التشغيلية والملاحظات")
         col_n1, col_n2 = st.columns(2)
         with col_n1:
-            free_hrs = st.number_input("الساعات التشغيلية المتاحة للوردية", min_value=0.0, value=8.0, step=0.5)
+            # افتراضي 8 ساعات لكل وردية (نظام 3 ورديات = 24 ساعة يومياً)
+            free_hrs = st.number_input("الساعات التشغيلية المتاحة للوردية (ساعة)", min_value=0.0, value=8.0, step=0.5)
         with col_n2:
             notes = st.text_area("ملاحظات / أرقام طلبات الشراء والتفاصيل", "")
 
@@ -103,7 +103,7 @@ with tab1:
                 str_date = str(date_input)
                 str_t1 = t1_input.strftime("%H:%M")
 
-                # --- 🛑 آلية التحقق من التكرار 🛑 ---
+                # التحقق من التكرار لنفس الماكينة والتاريخ والوردية ووقت البداية
                 if not df_curr.empty:
                     duplicate_check = df_curr[
                         (df_curr["التاريخ"] == str_date) & 
@@ -114,10 +114,9 @@ with tab1:
                     ]
                     
                     if not duplicate_check.empty:
-                        st.error(f"⚠️ **تم رفض الحفظ!** تم تسجيل إخطار عطل سابق لنفس الماكينة ({machine_id}) في نفس التاريخ ووقت البداية ({str_t1}).")
-                        st.stop()  # إيقاف التنفيذ وعدم الحفظ
+                        st.error(f"⚠️ **تم رفض الحفظ!** تم تسجيل إخطار عطل سابق لنفس الماكينة ({machine_id}) في نفس التاريخ والوردية ووقت البداية ({str_t1}).")
+                        st.stop()
 
-                # حساب تفاصيل الوقت والتوزيع
                 duration = live_duration
 
                 maint_h = duration if cause_cat == "عطل صيانة" else 0.0
@@ -154,7 +153,7 @@ with tab1:
                     "ملاحظات": notes
                 }
                 save_data(pd.concat([df_curr, pd.DataFrame([new_row])], ignore_index=True))
-                st.success(f"تم الحفظ بنجاح! مدة العطل: {duration} ساعة | نسبة التوافرية: {availability:.2f}%")
+                st.success(f"تم الحفظ بنجاح! مدة العطل: {duration} ساعة | نسبة التوافرية للوردية: {availability:.2f}%")
                 st.rerun()
             except Exception as e:
                 st.error(f"حدث خطأ أثناء إدخال البيانات: {e}")
@@ -220,21 +219,26 @@ with tab3:
         mech_downtime = breakdown_df[breakdown_df["تخصص العطل"] == "ميكانيكا"]["مدة العطل (ساعة)"].sum()
         elec_downtime = breakdown_df[breakdown_df["تخصص العطل"].isin(["كهرباء", "تحكم وآليات PLC", "كروت إلكترونية"])]["مدة العطل (ساعة)"].sum()
         
+        # حساب الساعات التشغيلية المتاحة بناءً على نظام 3 ورديات x 8 ساعات بدون تكرار للوردية بنفس اليوم والقسم
         unique_shifts_df = df_kpi.drop_duplicates(subset=["التاريخ", "المصنع/القسم", "رقم الوردية"])
         total_operating_hrs = unique_shifts_df["الساعات التشغيلية المتاحة"].sum()
+        
+        # حساب صافي ساعات التشغيل الفعلي (Uptime)
+        actual_uptime = max(total_operating_hrs - total_downtime, 0.0)
         total_cost = df_kpi["تكلفة قطعة الغيار (جنيه)"].sum()
         
         mttr = round(total_downtime / total_failures, 2) if total_failures > 0 else 0.0
-        mtbf = round((total_operating_hrs - total_downtime) / total_failures, 2) if total_failures > 0 else 0.0
-        overall_avail = round((total_operating_hrs / (total_operating_hrs + total_downtime)) * 100, 2) if (total_operating_hrs + total_downtime) > 0 else 100.0
+        mtbf = round(actual_uptime / total_failures, 2) if total_failures > 0 else 0.0
+        overall_avail = round((actual_uptime / total_operating_hrs) * 100, 2) if total_operating_hrs > 0 else 100.0
 
         col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
         col_m1.metric("معدل وقت الإصلاح (MTTR)", f"{mttr} ساعة")
         col_m2.metric("معدل التشغيل بين الأعطال (MTBF)", f"{mtbf} ساعة")
-        col_m3.metric("عدد الأعطال المسجلة", f"{total_failures} عطل")
+        col_m3.metric("عدد أعطال الصيانة", f"{total_failures} عطل")
         col_m4.metric("التوافرية الإجمالية", f"{overall_avail}%")
         col_m5.metric("إجمالي تكلفة الصيانة", f"{total_cost:,.0f} ج.م")
-        
+        st.caption(f"عدد الورديات الفعلية المحسوبة: {len(unique_shifts_df)} وردية (إجمالي {total_operating_hrs:.0f} ساعة تشغيل متاح بكتلة 3 ورديات/يوم)")
+
         st.divider()
 
         st.subheader("🎯 عداد رصيد البونص والجزاءات (حد 60 ساعة مسموحة)")
@@ -244,7 +248,7 @@ with tab3:
         
         b_col1, b_col2, b_col3 = st.columns(3)
         with b_col1:
-            st.metric("إجمالي التوقفات التراكمية", f"{total_downtime:.2f} ساعة")
+            st.metric("إجمالي أعطال الصيانة التراكمية", f"{total_downtime:.2f} ساعة")
         with b_col2:
             st.metric("الحد المسموح (البونص)", f"{ALLOWED_BONUS_HOURS} ساعة")
         with b_col3:
@@ -255,9 +259,9 @@ with tab3:
 
         st.markdown("##### 🔔 التنبيه التراكمي العام:")
         if total_downtime <= 45.0:
-            st.success(f"🟢 **حالة ممتازة:** إجمالي ساعات التوقف ({total_downtime:.2f} ساعة) ضمن النطاق الآمن. رصيد البونص كامل وسيتم صرف الحافز المخطط.")
+            st.success(f"🟢 **حالة ممتازة:** إجمالي توقفات الصيانة ({total_downtime:.2f} ساعة) ضمن النطاق الآمن. رصيد البونص كامل وسيتم صرف الحافز المخطط.")
         elif total_downtime <= ALLOWED_BONUS_HOURS:
-            st.warning(f"🟡 **تنبيه اقتراب الحد:** إجمالي التوقفات ({total_downtime:.2f} ساعة). متبقي {remaining_bonus:.2f} ساعة فقط قبل استهلاك كامل رصيد 60 ساعة البونص وبدء الجزاءات.")
+            st.warning(f"🟡 **تنبيه اقتراب الحد:** إجمالي التوقفات ({total_downtime:.2f} ساعة). متبقي {remaining_bonus:.2f} ساعة فقط قبل استهلاك كامل رصيد 60 ساعة البونص وبدء الخصومات.")
         else:
             excess = abs(remaining_bonus)
             st.error(f"🔴 **تنبيه تجاوز خطير - جزاءات:** تم تجاوز حد البونص المستثنى (60 ساعة) بمقدار **{excess:.2f} ساعة**. تم وقف البونص وتطبيق لائحة الخصومات والجزاءات على القسم.")
@@ -271,7 +275,7 @@ with tab3:
             st.markdown("**قسم الميكانيكا**")
             st.metric("توقفات الميكانيكا", f"{mech_downtime:.2f} ساعة")
             if mech_downtime > 35.0:
-                st.error(f"⚠️ **تنبيه ميكانيكا:** ارتفاع ملحوظ في الأعطال الميكانيكية ({mech_downtime:.2f} ساعة). يلزم مراجعة خطط الصيانة الوقائية للمكونات الميكانيكية والبرينات.")
+                st.error(f"⚠️ **تنبيه ميكانيكا:** ارتفاع ملحوظ في الأعطال الميكانيكية ({mech_downtime:.2f} ساعة). يلزم مراجعة خطط الصيانة الوقائية للمكونات الميكانيكية.")
             elif mech_downtime > 25.0:
                 st.warning(f"⚠️ **تحذير ميكانيكا:** الأعطال الميكانيكية بلغت {mech_downtime:.2f} ساعة.")
             else:
