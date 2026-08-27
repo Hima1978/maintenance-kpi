@@ -3,37 +3,42 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 
-st.set_page_config(page_title="شركة العلمين فليكس للطباعة - نظام KPIs", page_icon="⚙️", layout="wide")
+st.set_page_config(page_title="شركة العلمين فليكس للطباعة - نظام KPIs المتقدم", page_icon="⚙️", layout="wide")
 
 EXCEL_FILE = "maintenance_kpi_database.xlsx"
 
 def load_data():
     if os.path.exists(EXCEL_FILE):
-        return pd.read_excel(EXCEL_FILE)
+        df = pd.read_excel(EXCEL_FILE)
+        if not df.empty and "التاريخ" in df.columns:
+            df["التاريخ_dt"] = pd.to_datetime(df["التاريخ"], errors='coerce')
+        return df
     return pd.DataFrame(columns=[
         "التاريخ", "المصنع/القسم", "رقم الوردية", "رقم/اسم الماكينة", 
-        "اسم مشغل الماكينة", "اسم القائم بالصيانة", "وقت البداية", "وقت النهاية", 
-        "مدة العطل (ساعة)", "السبب الرئيسي", "عطل صيانة", 
-        "تأخير مشتريات", "صيانة مخططة", "خطأ مشغل", 
-        "الساعات المجانية", "توافرية الصيانة (%)", "ملاحظات"
+        "اسم مشغل الماكينة", "اسم القائم بالصيانة", "تخصص العطل", "طبيعة الصيانة",
+        "حالة الماكينة النهائية", "كود/اسم قطعة الغيار", "تكلفة قطعة الغيار (جنيه)",
+        "وقت البداية", "وقت النهاية", "مدة العطل (ساعة)", "السبب الرئيسي", 
+        "عطل صيانة", "تأخير مشتريات", "صيانة مخططة", "خطأ مشغل", 
+        "الساعات التشغيلية المتاحة", "توافرية الصيانة (%)", "ملاحظات"
     ])
 
 def save_data(df):
+    if "التاريخ_dt" in df.columns:
+        df = df.drop(columns=["التاريخ_dt"])
     df.to_excel(EXCEL_FILE, index=False)
 
 # العنوان الرئيسي للتطبيق
 st.title("🏭 شركة العلمين فليكس للطباعة")
-st.subheader("⚙️ منظومة متابعة أعطال الصيانة والـ KPIs")
+st.subheader("⚙️ منظومة إدارة ومتابعة الصيانة الشاملة (CMMS & KPIs)")
 
-tab1, tab2 = st.tabs(["📝 إدخال إخطار عطل", "📊 قاعدة البيانات والتحليلات"])
+tab1, tab2, tab3 = st.tabs(["📝 إدخال إخطار عطل", "📊 قاعدة البيانات والتحليلات", "📈 المؤشرات الهندسية (MTBF / MTTR)"])
 
 with tab1:
-    # العنوان الجانبي المكتوب بناءً على طلبك
-    st.header("🚨 إخطار عطل")
+    st.header("🚨 إخطار عطل جديد")
     
     with st.form("kpi_form"):
         # البيانات الأساسية للوردية والموقع
-        st.subheader("📌 البيانات الأساسية")
+        st.subheader("📌 البيانات الأساسية للوردية والأفراد")
         col1, col2, col3 = st.columns(3)
         with col1:
             date_input = st.date_input("التاريخ", datetime.now())
@@ -45,10 +50,25 @@ with tab1:
             ])
         with col2:
             shift_num = st.selectbox("رقم الوردية", ["الوردية الأولى (1)", "الوردية الثانية (2)", "الوردية الثالثة (3)"])
-            machine_id = st.text_input("رقم / اسم الماكينة", "Bobst / Comexi / Daetwyler")
+            machine_id = st.text_input("رقم / اسم الماكينة", "Bobst / Comexi / Daetwyler / Nordmeccanica")
         with col3:
             operator_name = st.text_input("اسم مشغل الماكينة", "")
             technician_name = st.text_input("اسم القائم بالصيانة", "")
+
+        st.divider()
+
+        # التصنيف الهندسي للعطل
+        st.subheader("🛠️ التصنيف الهندسي وحالة الماكينة")
+        col_t1, col_t2, col_t3 = st.columns(3)
+        with col_t1:
+            fault_type = st.selectbox("تخصص العطل", ["كهرباء", "ميكانيكا", "تحكم وآليات PLC", "هيدروليك ونيوماتيك", "كروت إلكترونية"])
+            maint_nature = st.selectbox("طبيعة الصيانة", ["عطل طارئ (Emergency)", "صيانة وقائية (PM)", "تحسين وتطوير (Modification)"])
+        with col_t2:
+            final_status = st.selectbox("حالة الماكينة عند المغادرة", ["تشغيل كلي", "تشغيل جزئي مؤقت", "متوقفة بانتظار قطع غيار"])
+            spare_part_code = st.text_input("كود / اسم قطعة الغيار المستهلكة", "بدون / Spare Part Code")
+        with col_t3:
+            spare_part_cost = st.number_input("تكلفة قطع الغيار التقديرية (جنيه)", min_value=0.0, value=0.0, step=50.0)
+            cause_cat = st.selectbox("السبب الرئيسي للعطل", ["عطل صيانة", "تأخير مشتريات", "صيانة مخططة", "خطأ مشغل"])
 
         st.divider()
 
@@ -59,10 +79,9 @@ with tab1:
             t1_input = st.time_input("وقت بداية العطل", datetime.strptime("08:00", "%H:%M").time())
             t2_input = st.time_input("وقت نهاية العطل", datetime.strptime("09:30", "%H:%M").time())
         with col5:
-            cause_cat = st.selectbox("السبب الرئيسي للعطل", ["عطل صيانة", "تأخير مشتريات", "صيانة مخططة", "خطأ مشغل"])
             free_hrs = st.number_input("الساعات التشغيلية المتاحة للوردية", min_value=0.0, value=8.0, step=0.5)
         with col6:
-            notes = st.text_area("ملاحظات / أرقام قطع الغيار المستخدمة", "")
+            notes = st.text_area("ملاحظات / أرقام طلبات الشراء والتفاصيل", "")
 
         submit = st.form_submit_button("حفظ الإخطار في Excel 💾", use_container_width=True)
 
@@ -72,7 +91,7 @@ with tab1:
                 t1_dt = datetime.combine(datetime.today(), t1_input)
                 t2_dt = datetime.combine(datetime.today(), t2_input)
                 
-                if t2_dt < t1_dt:  # التعامل مع الأعطال الممتدة عبر منتصف الليل
+                if t2_dt < t1_dt:
                     t2_dt += timedelta(days=1)
                 
                 duration = round((t2_dt - t1_dt).total_seconds() / 3600.0, 2)
@@ -96,6 +115,11 @@ with tab1:
                     "رقم/اسم الماكينة": machine_id,
                     "اسم مشغل الماكينة": operator_name,
                     "اسم القائم بالصيانة": technician_name,
+                    "تخصص العطل": fault_type,
+                    "طبيعة الصيانة": maint_nature,
+                    "حالة الماكينة النهائية": final_status,
+                    "كود/اسم قطعة الغيار": spare_part_code,
+                    "تكلفة قطعة الغيار (جنيه)": spare_part_cost,
                     "وقت البداية": t1_input.strftime("%H:%M"),
                     "وقت النهاية": t2_input.strftime("%H:%M"),
                     "مدة العطل (ساعة)": duration,
@@ -104,23 +128,91 @@ with tab1:
                     "تأخير مشتريات": proc_h,
                     "صيانة مخططة": pm_h,
                     "خطأ مشغل": op_h,
-                    "الساعات المجانية": free_hrs,
+                    "الساعات التشغيلية المتاحة": free_hrs,
                     "توافرية الصيانة (%)": round(availability, 2),
                     "ملاحظات": notes
                 }
                 save_data(pd.concat([df_curr, pd.DataFrame([new_row])], ignore_index=True))
-                st.success(f"تم الحفظ بنجاح! مدة العطل: {duration} ساعة | نسبة التوافرية للوردية: {availability:.2f}%")
+                st.success(f"تم الحفظ بنجاح! مدة العطل: {duration} ساعة | نسبة التوافرية: {availability:.2f}%")
             except Exception as e:
                 st.error(f"حدث خطأ أثناء إدخال البيانات: {e}")
 
+# دالة فلترة البيانات حسب الفترة الزمنية
+def filter_by_date_range(df):
+    if df.empty or "التاريخ_dt" not in df.columns:
+        return df
+    
+    st.sidebar.header("🗓️ تحديد الفترة الزمنية للتقارير")
+    filter_type = st.sidebar.radio("طريقة الفلترة:", ["شهري", "فترة مخصصة (من - إلى)", "الكل"])
+    
+    if filter_type == "شهري":
+        df['سنة_شهر'] = df['التاريخ_dt'].dt.to_period('M')
+        available_months = sorted(df['سنة_شهر'].dropna().unique().astype(str), reverse=True)
+        if available_months:
+            selected_month = st.sidebar.selectbox("اختر الشهر/السنة:", available_months)
+            return df[df['سنة_شهر'].astype(str) == selected_month]
+    elif filter_type == "فترة مخصصة (من - إلى)":
+        min_date = df['التاريخ_dt'].min().date() if not df['التاريخ_dt'].dropna().empty else datetime.now().date()
+        max_date = df['التاريخ_dt'].max().date() if not df['التاريخ_dt'].dropna().empty else datetime.now().date()
+        start_date = st.sidebar.date_input("من تاريخ:", min_date)
+        end_date = st.sidebar.date_input("إلى تاريخ:", max_date)
+        return df[(df['التاريخ_dt'].dt.date >= start_date) & (df['التاريخ_dt'].dt.date <= end_date)]
+    
+    return df
+
 with tab2:
-    df_data = load_data()
-    st.dataframe(df_data, use_container_width=True)
-    if not df_data.empty:
-        col_chart1, col_chart2 = st.columns(2)
+    df_raw = load_data()
+    df_filtered = filter_by_date_range(df_raw)
+    
+    st.subheader("📊 البيانات المفلترة حسب الفترة المحددة")
+    st.dataframe(df_filtered.drop(columns=["التاريخ_dt", "سنة_شهر"], errors="ignore"), use_container_width=True)
+    
+    if not df_filtered.empty:
+        col_chart1, col_chart2, col_chart3 = st.columns(3)
         with col_chart1:
-            st.subheader("إجمالي مدة الأعطال حسب المصنع/القسم")
-            st.bar_chart(df_data.groupby("المصنع/القسم")["مدة العطل (ساعة)"].sum())
+            st.subheader("ساعات التوقف حسب المصنع")
+            st.bar_chart(df_filtered.groupby("المصنع/القسم")["مدة العطل (ساعة)"].sum())
         with col_chart2:
-            st.subheader("إجمالي مدة الأعطال حسب الوردية")
-            st.bar_chart(df_data.groupby("رقم الوردية")["مدة العطل (ساعة)"].sum())
+            st.subheader("ساعات التوقف حسب تخصص العطل")
+            st.bar_chart(df_filtered.groupby("تخصص العطل")["مدة العطل (ساعة)"].sum())
+        with col_chart3:
+            st.subheader("تكلفة قطع الغيار حسب القسم (جنيه)")
+            st.bar_chart(df_filtered.groupby("المصنع/القسم")["تكلفة قطعة الغيار (جنيه)"].sum())
+
+with tab3:
+    st.header("📈 مؤشرات الأداء الهندسية والاعتمادية عن الفترة المحددة")
+    df_kpi_raw = load_data()
+    df_kpi = filter_by_date_range(df_kpi_raw)
+    
+    if not df_kpi.empty:
+        breakdown_df = df_kpi[df_kpi["السبب الرئيسي"] == "عطل صيانة"]
+        
+        total_downtime = breakdown_df["مدة العطل (ساعة)"].sum()
+        total_failures = len(breakdown_df)
+        total_operating_hrs = df_kpi["الساعات التشغيلية المتاحة"].sum()
+        total_cost = df_kpi["تكلفة قطعة الغيار (جنيه)"].sum()
+        
+        # 1. متوسط وقت الإصلاح (MTTR)
+        mttr = round(total_downtime / total_failures, 2) if total_failures > 0 else 0.0
+        
+        # 2. متوسط الوقت بين الأعطال (MTBF)
+        mtbf = round((total_operating_hrs - total_downtime) / total_failures, 2) if total_failures > 0 else 0.0
+        
+        # 3. إجمالي التوافرية العامة للفترة
+        overall_avail = round((total_operating_hrs / (total_operating_hrs + total_downtime)) * 100, 2) if (total_operating_hrs + total_downtime) > 0 else 100.0
+
+        col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
+        col_m1.metric("معدل وقت الإصلاح (MTTR)", f"{mttr} ساعة")
+        col_m2.metric("معدل التشغيل بين الأعطال (MTBF)", f"{mtbf} ساعة")
+        col_m3.metric("عدد الأعطال المسجلة", f"{total_failures} عطل")
+        col_m4.metric("التوافرية الإجمالية", f"{overall_avail}%")
+        col_m5.metric("إجمالي تكلفة الصيانة", f"{total_cost:,.0f} ج.م")
+
+        st.divider()
+        st.subheader("🎯 تحليل باريتو للأعطال للفترة المحددة (Pareto 80/20)")
+        
+        pareto_df = df_kpi.groupby("رقم/اسم الماكينة")["مدة العطل (ساعة)"].sum().reset_index()
+        pareto_df = pareto_df.sort_values(by="مدة العطل (ساعة)", ascending=False)
+        st.bar_chart(pareto_df.set_index("رقم/اسم الماكينة"))
+    else:
+        st.info("لا توجد بيانات مسجلة في الفترة الزمنية المحددة.")
