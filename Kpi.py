@@ -228,6 +228,58 @@ with tab2:
     st.dataframe(df_filtered_shared.drop(columns=["التاريخ_dt", "سنة_شهر"], errors="ignore"), use_container_width=True)
 
     st.divider()
+    st.subheader("💾 نسخ احتياطي واستعادة قاعدة البيانات")
+
+    col_bk1, col_bk2 = st.columns(2)
+
+    with col_bk1:
+        st.markdown("**⬇️ تنزيل نسخة احتياطية**")
+        if os.path.exists(EXCEL_FILE):
+            with open(EXCEL_FILE, "rb") as f:
+                backup_bytes = f.read()
+            backup_filename = f"نسخة_احتياطية_{datetime.now().strftime('%Y-%m-%d_%H%M')}.xlsx"
+            st.download_button(
+                label="⬇️ تنزيل نسخة احتياطية من قاعدة البيانات",
+                data=backup_bytes,
+                file_name=backup_filename,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+            st.caption(f"آخر تعديل على الملف: {datetime.fromtimestamp(os.path.getmtime(EXCEL_FILE)).strftime('%Y-%m-%d %H:%M')} | عدد السجلات الحالية: {len(load_data())}")
+        else:
+            st.info("لا توجد قاعدة بيانات محفوظة بعد لعمل نسخة احتياطية منها.")
+
+    with col_bk2:
+        st.markdown("**⬆️ استعادة نسخة احتياطية**")
+        restore_file = st.file_uploader("اختر ملف Excel (.xlsx) للاستعادة", type=["xlsx"], key="restore_uploader")
+        if restore_file is not None:
+            try:
+                preview_restore_df = pd.read_excel(restore_file)
+                st.write(f"عدد السجلات في الملف المرفوع: **{len(preview_restore_df)}** سجل")
+                st.dataframe(preview_restore_df.head(5), use_container_width=True)
+
+                expected_cols = {"التاريخ", "المصنع/القسم", "رقم/اسم الماكينة", "مدة العطل (ساعة)"}
+                if not expected_cols.issubset(set(preview_restore_df.columns)):
+                    st.warning("⚠️ الملف المرفوع لا يحتوي على كل الأعمدة المتوقعة لقاعدة البيانات. تأكد أنه نسخة احتياطية صحيحة قبل المتابعة.")
+
+                confirm_restore = st.checkbox(
+                    "⚠️ أؤكد استبدال قاعدة البيانات الحالية بالكامل بهذا الملف (سيتم أخذ نسخة أمان تلقائية من البيانات الحالية قبل الاستبدال)",
+                    key="confirm_restore_checkbox"
+                )
+                if st.button("♻️ استعادة النسخة الاحتياطية الآن", type="primary", disabled=not confirm_restore, use_container_width=True):
+                    if os.path.exists(EXCEL_FILE):
+                        import shutil
+                        safety_copy_name = f"safety_backup_before_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                        shutil.copy(EXCEL_FILE, safety_copy_name)
+
+                    restore_df_to_save = preview_restore_df.drop(columns=["التاريخ_dt"], errors="ignore")
+                    restore_df_to_save.to_excel(EXCEL_FILE, index=False)
+                    st.success(f"✅ تم استعادة قاعدة البيانات بنجاح من النسخة الاحتياطية ({len(restore_df_to_save)} سجل).")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"حدث خطأ أثناء قراءة الملف: {e}")
+
+    st.divider()
     st.subheader("🗑️ حذف إخطار عطل معين")
 
     df_all_for_delete = load_data()
