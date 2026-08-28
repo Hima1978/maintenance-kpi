@@ -7,6 +7,9 @@ st.set_page_config(page_title="شركة العلمين فليكس للطباعة
 
 EXCEL_FILE = "maintenance_kpi_database.xlsx"
 
+if "last_notification_number" not in st.session_state:
+    st.session_state["last_notification_number"] = None
+
 def load_data():
     if os.path.exists(EXCEL_FILE):
         df = pd.read_excel(EXCEL_FILE)
@@ -34,9 +37,14 @@ tab1, tab2, tab3 = st.tabs(["📝 إدخال إخطار عطل", "📊 قاعد�
 
 with tab1:
     st.header("🚨 إخطار عطل جديد")
-    
-    st.subheader("⏱️ تفاصيل أوقات العطل (حساب فوري)")
-    col_t1, col_t2, col_t3 = st.columns(3)
+
+    if st.session_state.get("last_notification_number"):
+        st.success(f"✅ آخر إخطار تم حفظه في هذه الجلسة: رقم **{st.session_state['last_notification_number']}**")
+
+    st.subheader("⏱️ تفاصيل التاريخ والأوقات (حساب فوري)")
+    col_t0, col_t1, col_t2, col_t3 = st.columns(4)
+    with col_t0:
+        date_input = st.date_input("التاريخ", datetime.now())
     with col_t1:
         t1_input = st.time_input("وقت بداية العطل", datetime.strptime("08:00", "%H:%M").time())
     with col_t2:
@@ -51,13 +59,25 @@ with tab1:
     with col_t3:
         st.metric("مدة العطل المحسوبة حالياً", f"{live_duration} ساعة")
 
+    # ---- معاينة حية لرقم الإخطار المتوقع بناءً على التاريخ المختار ----
+    _preview_df = load_data()
+    if not _preview_df.empty and "التاريخ_dt" in _preview_df.columns:
+        _monthly_count_preview = _preview_df[
+            (_preview_df["التاريخ_dt"].dt.month == date_input.month) &
+            (_preview_df["التاريخ_dt"].dt.year == date_input.year)
+        ].shape[0]
+    else:
+        _monthly_count_preview = 0
+    preview_notification_number = f"{date_input.strftime('%m-%Y')}-{_monthly_count_preview + 1:03d}"
+    st.info(f"🔢 **رقم الإخطار الذي سيتم تسجيله:** {preview_notification_number}")
+
     st.divider()
 
     with st.form("kpi_form"):
         st.subheader("📌 البيانات الأساسية للوردية والأفراد")
         col1, col2, col3 = st.columns(3)
         with col1:
-            date_input = st.date_input("التاريخ", datetime.now())
+            st.caption(f"📅 التاريخ المحدد: **{date_input.strftime('%Y-%m-%d')}** (لتغييره عدّل الحقل بالأعلى قبل الحفظ)")
             factory_site = st.selectbox("المصنع / القسم", [
                 "مصنع الطباعة", 
                 "مصنع السلندرات", 
@@ -128,7 +148,7 @@ with tab1:
                 eff_planned = total_planned - (proc_h + op_h)
                 availability = (free_hrs / eff_planned * 100) if eff_planned > 0 else 100.0
 
-                # ---- توليد رقم إخطار العطل: شهر-سنة + مسلسل شهري يبدأ من 1 وينتهي بآخر رقم بنفس الشهر ----
+                # ---- رقم إخطار العطل: شهر-سنة + مسلسل شهري يبدأ من 1 وينتهي بآخر رقم بنفس الشهر ----
                 month_year_str = date_input.strftime("%m-%Y")
                 if not df_curr.empty and "التاريخ_dt" in df_curr.columns:
                     monthly_count = df_curr[
@@ -165,6 +185,7 @@ with tab1:
                     "ملاحظات": notes
                 }
                 save_data(pd.concat([df_curr, pd.DataFrame([new_row])], ignore_index=True))
+                st.session_state["last_notification_number"] = notification_number
                 st.success(f"تم الحفظ بنجاح! رقم الإخطار: {notification_number} | مدة العطل: {duration} ساعة | نسبة التوافرية للوردية: {availability:.2f}%")
                 st.rerun()
             except Exception as e:
@@ -205,7 +226,46 @@ df_filtered_shared = filter_by_date_range(load_data(), key_prefix="shared")
 with tab2:
     st.subheader("📊 البيانات المفلترة حسب الفترة المحددة")
     st.dataframe(df_filtered_shared.drop(columns=["التاريخ_dt", "سنة_شهر"], errors="ignore"), use_container_width=True)
-    
+
+    st.divider()
+    st.subheader("🗑️ حذف إخطار عطل معين")
+
+    df_all_for_delete = load_data()
+    if not df_all_for_delete.empty:
+        display_df = df_all_for_delete.copy()
+        if "التاريخ_dt" in display_df.columns:
+            display_df = display_df.sort_values(by="التاريخ_dt", ascending=False, na_position="last")
+
+        def _delete_label(row):
+            num = row.get("رقم الإخطار", "")
+            num_part = f"{num} | " if pd.notna(num) and str(num).strip() != "" else ""
+            return (
+                f"{num_part}{row.get('التاريخ','')} | {row.get('المصنع/القسم','')} | "
+                f"{row.get('رقم/اسم الماكينة','')} | فني: {row.get('اسم القائم بالصيانة','')} | "
+                f"من {row.get('وقت البداية','')} إلى {row.get('وقت النهاية','')}"
+            )
+
+        delete_labels = {idx: _delete_label(row) for idx, row in display_df.iterrows()}
+        selected_idx = st.selectbox(
+            "اختر إخطار العطل المراد حذفه:",
+            options=list(delete_labels.keys()),
+            format_func=lambda i: delete_labels[i],
+            key="delete_select"
+        )
+
+        st.warning(f"سيتم حذف الإخطار التالي نهائياً:\n\n**{delete_labels[selected_idx]}**")
+        confirm_delete = st.checkbox("⚠️ أؤكد رغبتي في حذف هذا الإخطار نهائياً (لا يمكن التراجع عن هذا الإجراء)", key="confirm_delete_checkbox")
+
+        if st.button("🗑️ حذف الإخطار نهائياً", type="primary", disabled=not confirm_delete):
+            df_after_delete = df_all_for_delete.drop(index=selected_idx)
+            save_data(df_after_delete)
+            st.success("✅ تم حذف الإخطار بنجاح.")
+            st.rerun()
+    else:
+        st.info("لا توجد بيانات مسجلة لحذفها حالياً.")
+
+    st.divider()
+
     if not df_filtered_shared.empty:
         col_chart1, col_chart2, col_chart3 = st.columns(3)
         with col_chart1:
