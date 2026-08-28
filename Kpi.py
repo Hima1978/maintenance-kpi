@@ -14,7 +14,7 @@ def load_data():
             df["التاريخ_dt"] = pd.to_datetime(df["التاريخ"], errors='coerce')
         return df
     return pd.DataFrame(columns=[
-        "التاريخ", "المصنع/القسم", "رقم الوردية", "رقم/اسم الماكينة", 
+        "رقم الإخطار", "التاريخ", "المصنع/القسم", "رقم الوردية", "رقم/اسم الماكينة", 
         "اسم مشغل الماكينة", "اسم القائم بالصيانة", "تخصص العطل", "طبيعة الصيانة",
         "حالة الماكينة النهائية", "كود/اسم قطعة الغيار", "تكلفة قطعة الغيار (جنيه)",
         "وقت البداية", "وقت النهاية", "مدة العطل (ساعة)", "السبب الرئيسي", 
@@ -128,7 +128,19 @@ with tab1:
                 eff_planned = total_planned - (proc_h + op_h)
                 availability = (free_hrs / eff_planned * 100) if eff_planned > 0 else 100.0
 
+                # ---- توليد رقم إخطار العطل: شهر-سنة + مسلسل شهري يبدأ من 1 وينتهي بآخر رقم بنفس الشهر ----
+                month_year_str = date_input.strftime("%m-%Y")
+                if not df_curr.empty and "التاريخ_dt" in df_curr.columns:
+                    monthly_count = df_curr[
+                        (df_curr["التاريخ_dt"].dt.month == date_input.month) &
+                        (df_curr["التاريخ_dt"].dt.year == date_input.year)
+                    ].shape[0]
+                else:
+                    monthly_count = 0
+                notification_number = f"{month_year_str}-{monthly_count + 1:03d}"
+
                 new_row = {
+                    "رقم الإخطار": notification_number,
                     "التاريخ": str_date,
                     "المصنع/القسم": factory_site,
                     "رقم الوردية": shift_num,
@@ -153,7 +165,7 @@ with tab1:
                     "ملاحظات": notes
                 }
                 save_data(pd.concat([df_curr, pd.DataFrame([new_row])], ignore_index=True))
-                st.success(f"تم الحفظ بنجاح! مدة العطل: {duration} ساعة | نسبة التوافرية للوردية: {availability:.2f}%")
+                st.success(f"تم الحفظ بنجاح! رقم الإخطار: {notification_number} | مدة العطل: {duration} ساعة | نسبة التوافرية للوردية: {availability:.2f}%")
                 st.rerun()
             except Exception as e:
                 st.error(f"حدث خطأ أثناء إدخال البيانات: {e}")
@@ -297,5 +309,50 @@ with tab3:
         pareto_df = df_kpi.groupby("رقم/اسم الماكينة")["مدة العطل (ساعة)"].sum().reset_index()
         pareto_df = pareto_df.sort_values(by="مدة العطل (ساعة)", ascending=False)
         st.bar_chart(pareto_df.set_index("رقم/اسم الماكينة"))
+
+        st.divider()
+        st.subheader("🔍 استعلام: الفني الأكثر وقوعاً لأعطال في ورديته والماكينة الأكثر تسبباً بالتوقف")
+
+        col_q1, col_q2 = st.columns(2)
+
+        with col_q1:
+            st.markdown("**👨‍🔧 ترتيب الفنيين حسب إجمالي ساعات الأعطال في ورديتهم**")
+            tech_df = df_kpi.copy()
+            tech_df["اسم القائم بالصيانة"] = tech_df["اسم القائم بالصيانة"].astype(str).str.strip()
+            tech_df = tech_df[tech_df["اسم القائم بالصيانة"] != ""]
+            tech_downtime = tech_df.groupby("اسم القائم بالصيانة").agg(
+                عدد_الاعطال=("مدة العطل (ساعة)", "count"),
+                اجمالي_ساعات_الاعطال=("مدة العطل (ساعة)", "sum")
+            ).reset_index().sort_values(by="اجمالي_ساعات_الاعطال", ascending=False)
+
+            if not tech_downtime.empty:
+                top_tech = tech_downtime.iloc[0]
+                st.metric(
+                    f"🥇 الأكثر: {top_tech['اسم القائم بالصيانة']}",
+                    f"{top_tech['اجمالي_ساعات_الاعطال']:.2f} ساعة",
+                    delta=f"{int(top_tech['عدد_الاعطال'])} عطل"
+                )
+                st.dataframe(tech_downtime, use_container_width=True, hide_index=True)
+                st.bar_chart(tech_downtime.set_index("اسم القائم بالصيانة")["اجمالي_ساعات_الاعطال"])
+            else:
+                st.info("لا توجد بيانات كافية عن الفنيين في هذه الفترة.")
+
+        with col_q2:
+            st.markdown("**⚙️ ترتيب الماكينات حسب إجمالي ساعات الأعطال المتسببة بها**")
+            machine_downtime = df_kpi.groupby("رقم/اسم الماكينة").agg(
+                عدد_الاعطال=("مدة العطل (ساعة)", "count"),
+                اجمالي_ساعات_الاعطال=("مدة العطل (ساعة)", "sum")
+            ).reset_index().sort_values(by="اجمالي_ساعات_الاعطال", ascending=False)
+
+            if not machine_downtime.empty:
+                top_machine = machine_downtime.iloc[0]
+                st.metric(
+                    f"🥇 الأكثر: {top_machine['رقم/اسم الماكينة']}",
+                    f"{top_machine['اجمالي_ساعات_الاعطال']:.2f} ساعة",
+                    delta=f"{int(top_machine['عدد_الاعطال'])} عطل"
+                )
+                st.dataframe(machine_downtime, use_container_width=True, hide_index=True)
+            else:
+                st.info("لا توجد بيانات كافية عن الماكينات في هذه الفترة.")
     else:
         st.info("لا توجد بيانات مسجلة في الفترة الزمنية المحددة.")
