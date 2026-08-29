@@ -2,10 +2,50 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import os
+import json
 
 st.set_page_config(page_title="شركة العلمين فليكس للطباعة - نظام KPIs المتقدم", page_icon="⚙️", layout="wide")
 
 EXCEL_FILE = "maintenance_kpi_database.xlsx"
+MACHINES_CONFIG_FILE = "machines_config.json"
+
+DEFAULT_MACHINES_BY_FACTORY = {
+    "مصنع الطباعة": [
+        "9 colors press", "8 colors press", "Comexi lam", "Nord1 lam", "Nord2 lam", "Nord3 lam",
+        "Bemic slit", "Kesheng slit", "Rewinder mc", "Cheeter mc", "Slave machin",
+        "Rewinder mc sm", "Wax mc", "Core cutter old", "Core cutter new"
+    ],
+    "مصنع السلندرات": [
+        "Old engrave mc", "New engrave mc", "Chinese engrave mc", "Old cfm", "New cfm",
+        "Finish mc", "Prova mc", "German Chrome tank", "Chinese chrome tank",
+        "Copper Chinese tank", "German copper tank", "German nakil tank"
+    ],
+    "محطة السولفنت": [],
+    "الخدمات (Chiller/Dryer/Compressors)": [
+        "Big chiller", "Cylinders chiller", "Ink cooling conditioning chiller",
+        "Keasir big air compressor", "Keasir small air compressor", "Air dryer"
+    ]
+}
+
+def load_machines():
+    if os.path.exists(MACHINES_CONFIG_FILE):
+        try:
+            with open(MACHINES_CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for k, v in DEFAULT_MACHINES_BY_FACTORY.items():
+                if k not in data:
+                    data[k] = v
+            return data
+        except Exception:
+            return {k: list(v) for k, v in DEFAULT_MACHINES_BY_FACTORY.items()}
+    else:
+        fresh = {k: list(v) for k, v in DEFAULT_MACHINES_BY_FACTORY.items()}
+        save_machines(fresh)
+        return fresh
+
+def save_machines(data):
+    with open(MACHINES_CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 if "last_notification_number" not in st.session_state:
     st.session_state["last_notification_number"] = None
@@ -71,22 +111,56 @@ with tab1:
     preview_notification_number = f"{date_input.strftime('%m-%Y')}-{_monthly_count_preview + 1:03d}"
     st.info(f"🔢 **رقم الإخطار الذي سيتم تسجيله:** {preview_notification_number}")
 
+    st.subheader("🏭 المصنع / القسم والماكينة")
+    col_f1, col_f2 = st.columns(2)
+
+    machines_data = load_machines()
+
+    with col_f1:
+        factory_site = st.selectbox("المصنع / القسم", [
+            "مصنع الطباعة", 
+            "مصنع السلندرات", 
+            "محطة السولفنت", 
+            "الخدمات (Chiller/Dryer/Compressors)"
+        ])
+    with col_f2:
+        _machine_options = machines_data.get(factory_site, [])
+        if _machine_options:
+            machine_id = st.selectbox("رقم / اسم الماكينة", _machine_options, key="machine_select")
+        else:
+            machine_id = None
+            st.selectbox("رقم / اسم الماكينة", ["— لا توجد ماكينات مضافة بعد —"], disabled=True)
+
+    with st.expander(f"➕ إضافة ماكينة جديدة إلى قائمة: {factory_site}"):
+        col_add1, col_add2 = st.columns([3, 1])
+        with col_add1:
+            new_machine_name = st.text_input("اسم / رقم الماكينة الجديدة", key="new_machine_input", label_visibility="collapsed", placeholder="اكتب اسم الماكينة الجديدة هنا")
+        with col_add2:
+            add_machine_clicked = st.button("➕ إضافة", key="add_machine_btn", use_container_width=True)
+        if add_machine_clicked:
+            cleaned_name = new_machine_name.strip()
+            if not cleaned_name:
+                st.warning("يرجى إدخال اسم الماكينة أولاً.")
+            elif cleaned_name in machines_data.get(factory_site, []):
+                st.warning("هذه الماكينة موجودة بالفعل في القائمة.")
+            else:
+                machines_data.setdefault(factory_site, []).append(cleaned_name)
+                save_machines(machines_data)
+                st.success(f"✅ تمت إضافة '{cleaned_name}' إلى قائمة {factory_site}.")
+                st.rerun()
+
     st.divider()
 
     with st.form("kpi_form"):
         st.subheader("📌 البيانات الأساسية للوردية والأفراد")
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.caption(f"📅 التاريخ المحدد: **{date_input.strftime('%Y-%m-%d')}** (لتغييره عدّل الحقل بالأعلى قبل الحفظ)")
-            factory_site = st.selectbox("المصنع / القسم", [
-                "مصنع الطباعة", 
-                "مصنع السلندرات", 
-                "محطة السولفنت", 
-                "الخدمات (Chiller/Dryer/Compressors)"
-            ])
+            st.caption(f"📅 التاريخ المحدد: **{date_input.strftime('%Y-%m-%d')}**")
+            st.caption(f"🏭 المصنع/القسم: **{factory_site}**")
+            st.caption(f"⚙️ الماكينة: **{machine_id if machine_id else 'لم يتم الاختيار'}**")
+            st.caption("(لتغيير أي من الحقول أعلاه، عدّلها في الأعلى قبل الحفظ)")
         with col2:
             shift_num = st.selectbox("رقم الوردية", ["الوردية الأولى (1)", "الوردية الثانية (2)", "الوردية الثالثة (3)"])
-            machine_id = st.text_input("رقم / اسم الماكينة", "Bobst / Comexi / Daetwyler / Nordmeccanica")
         with col3:
             operator_name = st.text_input("اسم مشغل الماكينة", "")
             technician_name = st.text_input("اسم القائم بالصيانة", "")
@@ -118,6 +192,9 @@ with tab1:
         submit = st.form_submit_button("حفظ الإخطار في Excel 💾", use_container_width=True)
 
         if submit:
+            if not machine_id:
+                st.error("⚠️ لا يمكن الحفظ: لا توجد ماكينة مختارة لهذا القسم. أضف ماكينة أولاً من قسم '➕ إضافة ماكينة جديدة' بالأعلى.")
+                st.stop()
             try:
                 df_curr = load_data()
                 str_date = str(date_input)
