@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 import json
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="شركة العلمين فليكس للطباعة - نظام KPIs المتقدم", page_icon="⚙️", layout="wide")
 
@@ -69,6 +70,221 @@ def save_data(df):
     if "التاريخ_dt" in df.columns:
         df = df.drop(columns=["التاريخ_dt"])
     df.to_excel(EXCEL_FILE, index=False)
+
+def _record_label(row):
+    num = row.get("رقم الإخطار", "")
+    num_part = f"{num} | " if pd.notna(num) and str(num).strip() != "" else ""
+    return (
+        f"{num_part}{row.get('التاريخ','')} | {row.get('المصنع/القسم','')} | "
+        f"{row.get('رقم/اسم الماكينة','')} | فني: {row.get('اسم القائم بالصيانة','')} | "
+        f"من {row.get('وقت البداية','')} إلى {row.get('وقت النهاية','')}"
+    )
+
+# ==================== أدوات الطباعة ====================
+
+def _print_page_wrapper(title, body_html):
+    return f"""
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+    <meta charset="UTF-8">
+    <title>{title}</title>
+    <style>
+        * {{ box-sizing: border-box; }}
+        body {{
+            font-family: 'Tahoma', 'Arial', sans-serif;
+            direction: rtl;
+            padding: 24px;
+            color: #1a1a1a;
+        }}
+        .report-header {{
+            text-align: center;
+            border-bottom: 3px solid #0d6efd;
+            padding-bottom: 12px;
+            margin-bottom: 20px;
+        }}
+        .report-header h1 {{ margin: 0; font-size: 22px; }}
+        .report-header h2 {{ margin: 4px 0 0; font-size: 16px; color: #444; font-weight: normal; }}
+        .meta-line {{ font-size: 12px; color: #666; margin-top: 6px; }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+            font-size: 12px;
+        }}
+        th, td {{
+            border: 1px solid #999;
+            padding: 6px 8px;
+            text-align: center;
+        }}
+        th {{ background-color: #0d6efd; color: white; }}
+        tr:nth-child(even) {{ background-color: #f2f6fc; }}
+        .form-table td.label {{
+            background-color: #eef3fb;
+            font-weight: bold;
+            width: 32%;
+            text-align: right;
+        }}
+        .summary-box {{
+            margin-top: 20px;
+            padding: 12px;
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 13px;
+        }}
+        .signatures {{
+            display: flex;
+            justify-content: space-between;
+            margin-top: 60px;
+        }}
+        .signature-box {{
+            width: 30%;
+            text-align: center;
+            border-top: 1px solid #333;
+            padding-top: 6px;
+            font-size: 13px;
+        }}
+        .print-toolbar {{ text-align: center; margin-bottom: 16px; }}
+        .print-toolbar button {{
+            background-color: #0d6efd; color: white; border: none;
+            padding: 8px 20px; border-radius: 6px; cursor: pointer; font-size: 14px;
+        }}
+        @media print {{
+            body {{ padding: 0; }}
+            .print-toolbar {{ display: none; }}
+            @page {{ size: A4; margin: 12mm; }}
+        }}
+    </style>
+    </head>
+    <body>
+    <div class="print-toolbar"><button onclick="window.print()">🖨️ طباعة</button></div>
+    {body_html}
+    </body>
+    </html>
+    """
+
+def print_button(html_content, label="🖨️ طباعة / حفظ PDF", height=55):
+    html_json = json.dumps(html_content)
+    component_html = f"""
+    <button id="printBtnUnique" style="background-color:#0d6efd;color:white;border:none;
+    padding:10px 24px;border-radius:8px;cursor:pointer;font-size:15px;font-weight:bold;
+    width:100%;">{label}</button>
+    <script>
+    (function() {{
+        var btn = document.getElementById('printBtnUnique');
+        btn.addEventListener('click', function() {{
+            var content = {html_json};
+            var w = window.open('', '_blank');
+            w.document.open();
+            w.document.write(content);
+            w.document.close();
+            setTimeout(function() {{ w.focus(); w.print(); }}, 400);
+        }});
+    }})();
+    </script>
+    """
+    components.html(component_html, height=height)
+
+def build_incident_form_html(row):
+    fields = [
+        ("رقم الإخطار", row.get("رقم الإخطار", "")),
+        ("التاريخ", row.get("التاريخ", "")),
+        ("المصنع/القسم", row.get("المصنع/القسم", "")),
+        ("رقم الوردية", row.get("رقم الوردية", "")),
+        ("رقم/اسم الماكينة", row.get("رقم/اسم الماكينة", "")),
+        ("اسم مشغل الماكينة", row.get("اسم مشغل الماكينة", "")),
+        ("اسم القائم بالصيانة", row.get("اسم القائم بالصيانة", "")),
+        ("تخصص العطل", row.get("تخصص العطل", "")),
+        ("طبيعة الصيانة", row.get("طبيعة الصيانة", "")),
+        ("حالة الماكينة النهائية", row.get("حالة الماكينة النهائية", "")),
+        ("كود/اسم قطعة الغيار", row.get("كود/اسم قطعة الغيار", "")),
+        ("تكلفة قطعة الغيار (جنيه)", row.get("تكلفة قطعة الغيار (جنيه)", "")),
+        ("وقت البداية", row.get("وقت البداية", "")),
+        ("وقت النهاية", row.get("وقت النهاية", "")),
+        ("مدة العطل (ساعة)", row.get("مدة العطل (ساعة)", "")),
+        ("السبب الرئيسي", row.get("السبب الرئيسي", "")),
+        ("الساعات التشغيلية المتاحة", row.get("الساعات التشغيلية المتاحة", "")),
+        ("توافرية الصيانة (%)", row.get("توافرية الصيانة (%)", "")),
+        ("ملاحظات", row.get("ملاحظات", "")),
+    ]
+    rows_html = "".join(
+        f"<tr><td class='label'>{label}</td><td>{value}</td></tr>"
+        for label, value in fields
+    )
+    body = f"""
+    <div class="report-header">
+        <h1>🏭 شركة العلمين فليكس للطباعة</h1>
+        <h2>نموذج إخطار عطل - Maintenance Notification Form</h2>
+        <div class="meta-line">تاريخ الطباعة: {datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
+    </div>
+    <table class="form-table">
+        {rows_html}
+    </table>
+    <div class="signatures">
+        <div class="signature-box">توقيع مشغل الماكينة</div>
+        <div class="signature-box">توقيع فني الصيانة</div>
+        <div class="signature-box">توقيع مشرف الصيانة</div>
+    </div>
+    """
+    return _print_page_wrapper("نموذج إخطار عطل", body)
+
+def build_table_report_html(df, title, subtitle="", extra_summary_html=""):
+    display_cols = [c for c in df.columns if c not in ("التاريخ_dt", "سنة_شهر")]
+    df_show = df[display_cols].copy()
+    header_html = "".join(f"<th>{c}</th>" for c in df_show.columns)
+    rows_html = ""
+    for _, r in df_show.iterrows():
+        cells = "".join(f"<td>{r[c]}</td>" for c in df_show.columns)
+        rows_html += f"<tr>{cells}</tr>"
+    body = f"""
+    <div class="report-header">
+        <h1>🏭 شركة العلمين فليكس للطباعة</h1>
+        <h2>{title}</h2>
+        <div class="meta-line">{subtitle} | تاريخ الطباعة: {datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
+    </div>
+    <table>
+        <thead><tr>{header_html}</tr></thead>
+        <tbody>{rows_html}</tbody>
+    </table>
+    {extra_summary_html}
+    """
+    return _print_page_wrapper(title, body)
+
+def build_kpi_report_html(period_label, mttr, mtbf, total_failures, overall_avail, total_cost,
+                           total_downtime, remaining_bonus, mech_downtime, elec_downtime,
+                           top_tech_name, top_tech_hours, top_machine_name, top_machine_hours):
+    if total_downtime <= 45.0:
+        bonus_status = "🟢 حالة ممتازة - رصيد البونص كامل"
+    elif total_downtime <= 60.0:
+        bonus_status = "🟡 اقتراب من حد البونص المسموح"
+    else:
+        bonus_status = "🔴 تجاوز حد البونص - تطبيق الجزاءات"
+
+    body = f"""
+    <div class="report-header">
+        <h1>🏭 شركة العلمين فليكس للطباعة</h1>
+        <h2>تقرير المؤشرات الهندسية (KPI Report)</h2>
+        <div class="meta-line">الفترة: {period_label} | تاريخ الطباعة: {datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
+    </div>
+    <table class="form-table">
+        <tr><td class="label">معدل وقت الإصلاح (MTTR)</td><td>{mttr} ساعة</td></tr>
+        <tr><td class="label">معدل التشغيل بين الأعطال (MTBF)</td><td>{mtbf} ساعة</td></tr>
+        <tr><td class="label">عدد أعطال الصيانة</td><td>{total_failures} عطل</td></tr>
+        <tr><td class="label">التوافرية الإجمالية</td><td>{overall_avail}%</td></tr>
+        <tr><td class="label">إجمالي تكلفة الصيانة</td><td>{total_cost:,.0f} ج.م</td></tr>
+        <tr><td class="label">إجمالي ساعات توقف الصيانة</td><td>{total_downtime:.2f} ساعة</td></tr>
+        <tr><td class="label">رصيد/تجاوز البونص (حد 60 ساعة)</td><td>{remaining_bonus:.2f} ساعة</td></tr>
+        <tr><td class="label">توقفات قسم الميكانيكا</td><td>{mech_downtime:.2f} ساعة</td></tr>
+        <tr><td class="label">توقفات قسم الكهرباء والتحكم</td><td>{elec_downtime:.2f} ساعة</td></tr>
+        <tr><td class="label">الفني الأكثر ارتباطاً بالأعطال</td><td>{top_tech_name} ({top_tech_hours:.2f} ساعة)</td></tr>
+        <tr><td class="label">الماكينة الأكثر تسبباً بالتوقف</td><td>{top_machine_name} ({top_machine_hours:.2f} ساعة)</td></tr>
+    </table>
+    <div class="summary-box">
+        <b>الحالة العامة للبونص/الجزاءات:</b> {bonus_status}
+    </div>
+    """
+    return _print_page_wrapper("تقرير KPI", body)
 
 st.title("🏭 شركة العلمين فليكس للطباعة")
 st.subheader("⚙️ منظومة إدارة ومتابعة الصيانة الشاملة (CMMS & KPIs)")
@@ -365,16 +581,7 @@ with tab2:
         if "التاريخ_dt" in display_df.columns:
             display_df = display_df.sort_values(by="التاريخ_dt", ascending=False, na_position="last")
 
-        def _delete_label(row):
-            num = row.get("رقم الإخطار", "")
-            num_part = f"{num} | " if pd.notna(num) and str(num).strip() != "" else ""
-            return (
-                f"{num_part}{row.get('التاريخ','')} | {row.get('المصنع/القسم','')} | "
-                f"{row.get('رقم/اسم الماكينة','')} | فني: {row.get('اسم القائم بالصيانة','')} | "
-                f"من {row.get('وقت البداية','')} إلى {row.get('وقت النهاية','')}"
-            )
-
-        delete_labels = {idx: _delete_label(row) for idx, row in display_df.iterrows()}
+        delete_labels = {idx: _record_label(row) for idx, row in display_df.iterrows()}
         selected_idx = st.selectbox(
             "اختر إخطار العطل المراد حذفه:",
             options=list(delete_labels.keys()),
@@ -392,6 +599,50 @@ with tab2:
             st.rerun()
     else:
         st.info("لا توجد بيانات مسجلة لحذفها حالياً.")
+
+    st.divider()
+    st.subheader("🖨️ الطباعة")
+
+    print_col1, print_col2 = st.columns(2)
+
+    with print_col1:
+        st.markdown("**📄 طباعة نموذج إخطار عطل واحد**")
+        df_all_for_print = load_data()
+        if not df_all_for_print.empty:
+            print_display_df = df_all_for_print.copy()
+            if "التاريخ_dt" in print_display_df.columns:
+                print_display_df = print_display_df.sort_values(by="التاريخ_dt", ascending=False, na_position="last")
+            print_labels = {idx: _record_label(row) for idx, row in print_display_df.iterrows()}
+            selected_print_idx = st.selectbox(
+                "اختر الإخطار المراد طباعته:",
+                options=list(print_labels.keys()),
+                format_func=lambda i: print_labels[i],
+                key="print_select"
+            )
+            selected_row_for_print = print_display_df.loc[selected_print_idx]
+            incident_html = build_incident_form_html(selected_row_for_print)
+            print_button(incident_html, label="🖨️ طباعة نموذج الإخطار")
+        else:
+            st.info("لا توجد بيانات مسجلة للطباعة حالياً.")
+
+    with print_col2:
+        st.markdown("**📅 طباعة تقرير جميع الأعطال (حسب الفترة المحددة بالشريط الجانبي)**")
+        if not df_filtered_shared.empty:
+            monthly_report_html = build_table_report_html(
+                df_filtered_shared,
+                title="تقرير جميع الأعطال - Monthly Faults Report",
+                subtitle="الفترة المحددة حالياً في الشريط الجانبي",
+                extra_summary_html=f"""
+                <div class="summary-box">
+                    <b>إجمالي عدد الأعطال:</b> {len(df_filtered_shared)} |
+                    <b>إجمالي ساعات التوقف:</b> {df_filtered_shared['مدة العطل (ساعة)'].sum():.2f} ساعة |
+                    <b>إجمالي تكلفة قطع الغيار:</b> {df_filtered_shared['تكلفة قطعة الغيار (جنيه)'].sum():,.0f} ج.م
+                </div>
+                """
+            )
+            print_button(monthly_report_html, label="🖨️ طباعة تقرير جميع الأعطال")
+        else:
+            st.info("لا توجد بيانات ضمن الفترة المحددة للطباعة.")
 
     st.divider()
 
@@ -543,5 +794,24 @@ with tab3:
                 st.dataframe(machine_downtime, use_container_width=True, hide_index=True)
             else:
                 st.info("لا توجد بيانات كافية عن الماكينات في هذه الفترة.")
+
+        st.divider()
+        st.subheader("🖨️ طباعة تقرير KPI")
+
+        top_tech_name = top_tech["اسم القائم بالصيانة"] if not tech_downtime.empty else "-"
+        top_tech_hours = top_tech["اجمالي_ساعات_الاعطال"] if not tech_downtime.empty else 0.0
+        top_machine_name_kpi = top_machine["رقم/اسم الماكينة"] if not machine_downtime.empty else "-"
+        top_machine_hours_kpi = top_machine["اجمالي_ساعات_الاعطال"] if not machine_downtime.empty else 0.0
+
+        kpi_report_html = build_kpi_report_html(
+            period_label="الفترة المحددة حالياً في الشريط الجانبي",
+            mttr=mttr, mtbf=mtbf, total_failures=total_failures,
+            overall_avail=overall_avail, total_cost=total_cost,
+            total_downtime=total_downtime, remaining_bonus=remaining_bonus,
+            mech_downtime=mech_downtime, elec_downtime=elec_downtime,
+            top_tech_name=top_tech_name, top_tech_hours=top_tech_hours,
+            top_machine_name=top_machine_name_kpi, top_machine_hours=top_machine_hours_kpi
+        )
+        print_button(kpi_report_html, label="🖨️ طباعة تقرير المؤشرات الهندسية (KPI)")
     else:
         st.info("لا توجد بيانات مسجلة في الفترة الزمنية المحددة.")
